@@ -1,33 +1,121 @@
 services:
-  webpage:
-    build: .
-    container_name: microservice-webpage
-    ports:
-      - "8080:80"
 
-  product:
+  book-service:
     build:
-      context: ./backend
-      dockerfile: product/Dockerfile
-    container_name: product-service
+      context: ./services/book_service
+    image: library-app/book-service:1.0
+    container_name: book-service
     ports:
-      - "5001:5001"
+      - "8001:8001"
+    environment:
+      DB_PATH: /data/books.db
+    volumes:
+      - book-data:/data
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
-  order:
+
+  member-service:
     build:
-      context: ./backend
-      dockerfile: order/Dockerfile
-    container_name: order-service
+      context: ./services/member_service
+    image: library-app/member-service:1.0
+    container_name: member-service
     ports:
-      - "5002:5002"
+      - "8002:8002"
+    environment:
+      DB_PATH: /data/members.db
+    volumes:
+      - member-data:/data
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+
+  notification-service:
+    build:
+      context: ./services/notification_service
+    image: library-app/notification-service:1.0
+    container_name: notification-service
+    ports:
+      - "8004:8004"
+    environment:
+      DB_PATH: /data/notifications.db
+    volumes:
+      - notification-data:/data
+    networks:
+      - library-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+
+  borrow-service:
+    build:
+      context: ./services/borrow_service
+    image: library-app/borrow-service:1.0
+    container_name: borrow-service
+    ports:
+      - "8003:8003"
+    environment:
+      DB_PATH: /data/borrows.db
+      BOOK_SERVICE_URL: http://book-service:8001
+      MEMBER_SERVICE_URL: http://member-service:8002
+      NOTIFICATION_SERVICE_URL: http://notification-service:8004
+    volumes:
+      - borrow-data:/data
+    networks:
+      - library-net
     depends_on:
-      - product
-      - payment
+      book-service:
+        condition: service_healthy
+      member-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
-  payment:
+
+  library-frontend:
     build:
-      context: ./backend
-      dockerfile: payment/Dockerfile
-    container_name: payment-service
+      context: ./frontend
+    image: library-app/frontend:1.0
+    container_name: library-frontend
     ports:
-      - "5003:5003"
+      - "8501:8501"
+    environment:
+      BOOK_SERVICE_URL: http://book-service:8001
+      MEMBER_SERVICE_URL: http://member-service:8002
+      BORROW_SERVICE_URL: http://borrow-service:8003
+      NOTIFICATION_SERVICE_URL: http://notification-service:8004
+    networks:
+      - library-net
+    depends_on:
+      borrow-service:
+        condition: service_healthy
+
+
+volumes:
+  book-data:
+  member-data:
+  borrow-data:
+  notification-data:
+
+
+networks:
+  library-net:
+    driver: bridge
